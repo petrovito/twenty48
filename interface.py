@@ -11,7 +11,7 @@ def bits(num):
     if num == 0:
         return 0,0
     binary = bin(num)
-    setBits = [ones for ones in binary[2:] if ones=='1']
+    setBits = [ones for ones in binary[2:] if ones == '1']
     return len(setBits), len(binary)-2
 
 
@@ -58,12 +58,27 @@ class Game:
             if not self.direction_legal[direction]:
                 continue
             states[direction] = []
+            new_game_dir = Game(self)
+            num_zeros = new_game_dir.make_move(direction)
             for _ in range(num_each_dir):
-                new_game = Game(self)
-                new_game.make_move(direction)
+                new_game = Game(new_game_dir)
+                if num_zeros > 0:
+                    new_game.add_random_to_zero()
                 states[direction].append(new_game.to_logarray())
         return states
 
+
+    def add_random_to_zero(self):
+        new_num = 2
+        if random.random() > self.two_rate:
+            new_num = 4
+        while 1:
+            x = random.randrange(4)
+            y = random.randrange(4)
+            if self.board[x][y] != 0:
+                continue
+            self.board[x][y] = new_num
+            break
 
     def make_move(self, direction):
         if direction == Direction.UP:
@@ -183,18 +198,8 @@ class Game:
             for j in range(4):
                 if self.board[i][j] == 0:
                     num_zeros += 1
-        if num_zeros > 0:
-            #add random
-            new_num = 2
-            if random.random() > self.two_rate:
-                new_num = 4
-            while 1:
-                x = random.randrange(4)
-                y = random.randrange(4)
-                if self.board[x][y] != 0:
-                    continue
-                self.board[x][y] = new_num
-                break
+        return num_zeros
+
 
 
 
@@ -202,7 +207,9 @@ class Game:
     def move(self, direction):
         if not self.direction_legal[direction]:
             return
-        self.make_move(direction)
+        num_zeros = self.make_move(direction)
+        if num_zeros > 0:
+            self.add_random_to_zero()
         self.can_move()
 
     def can_move(self):

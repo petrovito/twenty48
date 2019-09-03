@@ -76,7 +76,10 @@ class ValueLearner:
         self.model.compile(optimizer=sgd, loss='mean_squared_error')
 
 
-    def move(self, current_game, mode="avg", eps=None):
+    def eval(self, game):
+        return self.model.predict(np.vstack([game.to_logarray()]))[0][0]
+
+    def get_move_list(self, current_game, mode='avg'):
         if self.model is None:
             return
         num_each_dir = 10
@@ -130,6 +133,10 @@ class ValueLearner:
                     values[dir] += vals[index][0]
                     index += 1
         sorted_dirs = sorted(values.keys(), key=lambda x: values[x])
+        return sorted_dirs
+
+    def move(self, current_game, mode="avg", eps=None):
+        sorted_dirs = self.get_move_list(current_game)
         if eps is None or len(sorted_dirs) == 1:
             return sorted_dirs[-1]
             """
@@ -233,6 +240,56 @@ class ValueLearner:
         matrix = np.vstack(vecs)
         labels = np.vstack(vals)
         self.model.fit(matrix, labels, epochs=params["num_epochs"], batch_size=params["batch_size"], verbose=0)
+
+
+    def train_random_moves(self, min_length=300, eps=0.03, max_active_games=25):
+        branches = []
+        histories = [[]]
+        active_games = []
+        num_games = 0
+        eval = 0
+        while len(histories[0]) < min_length or eval < 0.3:
+            histories[0] = []
+            active_games = []
+            game = Game()
+            for _ in range(min_length):
+                game.move(self.move(game))
+                histories[0].append(game.to_logarray())
+                if game.end:
+                    break
+            active_games.append((game, 0))
+            eval = self.eval(game)
+        #print self.eval(game)
+        while len(active_games) > 0:
+            new_games = []
+            for game, index in active_games:
+                move_list = self.get_move_list(game)
+                rand = random.random()
+                if rand < eps and len(move_list) > 1 and len(active_games)<max_active_games:
+                    new_node = Game(game)
+                    num_games += 1
+                    new_games.append((new_node, num_games))
+                    histories.append(copy.deepcopy(histories[index]))
+                    branches.append(np.sum(game.board))
+                    game.move(move_list[-1])
+                    histories[index].append(game.to_logarray())
+                    new_node.move(move_list[-2])
+                    histories[num_games].append(new_node.to_logarray())
+                else:
+                    game.move(move_list[-1])
+                    histories[index].append(game.to_logarray())
+            active_games.extend(new_games)
+            active_games = [pair for pair in active_games if not pair[0].end]
+        print len(histories)
+        histl = max(histories, key=lambda x: len(x))
+        print len(histl), len(histories[0])
+        return histories, branches
+
+
+    def train_on_data_random_moves(self, histories, branches):
+        for branch in branches:
+            i = 0
+        #sparse branches, learn stuff
 
 
     def train(self, exp_name, params, logname):

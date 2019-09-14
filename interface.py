@@ -1,6 +1,5 @@
-
+from direction import Direction
 import random
-from enum import Enum
 from Tkinter import *
 import numpy as np
 import copy
@@ -54,7 +53,7 @@ class Game:
 
     def get_states_each_dir(self, num_each_dir=20):
         states = {}
-        for direction in list(Direction):
+        for direction in Direction:
             if not self.direction_legal[direction]:
                 continue
             states[direction] = []
@@ -65,6 +64,22 @@ class Game:
                 if num_zeros > 0:
                     new_game.add_random_to_zero()
                 states[direction].append(new_game.to_logarray())
+        return states
+
+    def get_games_each_dir(self, num_each_dir=20):
+        states = {}
+        for direction in Direction:
+            if not self.direction_legal[direction]:
+                continue
+            states[direction] = []
+            new_game_dir = Game(self)
+            num_zeros = new_game_dir.make_move(direction)
+            for _ in range(num_each_dir):
+                new_game = Game(new_game_dir)
+                if num_zeros > 0:
+                    new_game.add_random_to_zero()
+                new_game.can_move()
+                states[direction].append(new_game)
         return states
 
 
@@ -219,7 +234,8 @@ class Game:
         self.direction_legal[Direction.UP] = self.can_move_up()
         self.end = True
         for dir in Direction:
-            if self.direction_legal[dir]: self.end = False
+            if self.direction_legal[dir]:
+                self.end = False
 
 
     def can_move_left(self):
@@ -390,14 +406,6 @@ def get_random_2pow(sum,i):
         if sum > rand: return pair[1]
 
 
-class Direction(Enum):
-    UP = 0
-    DOWN = 1
-    LEFT = 2
-    RIGHT = 3
-
-
-
 
 class Application(Tk):
 
@@ -405,16 +413,19 @@ class Application(Tk):
     def initialize(self):
         self.labels = []
         self.textv = []
+        self.infos = []
+        self.infotext = []
         self.game = None
         self.grid()
 
-    def __init__(self, game, parent=None):
-        Tk.__init__(self,parent)
-        self.parent = parent
+    def __init__(self, game, vl):
+        Tk.__init__(self,None)
+        self.vl = vl
+        self.parent = None
         self.initialize()
         self.game=game
         self.title('clicker')
-        self.geometry('500x600+300+150')
+        self.geometry('800x600+300+150')
 
         for i in range(4):
             self.labels.append([])
@@ -424,8 +435,11 @@ class Application(Tk):
                 lbl = Label(self, textvariable=self.textv[i][j], font=("Arial Bold", 30))
                 lbl.grid(column=j, row=i)
                 self.labels[-1].append(lbl)
+            self.infotext.append(StringVar())
+            lbl = Label(self, textvariable=self.infotext[-1], font=("Arial Bold", 15))
+            lbl.grid(column=5, row=i)
         self.refresh()
-        self.bind("<Key>",self.key)
+        self.bind("<Key>", self.key)
 
     def key(self,event):
         if event.keysym == "Right":
@@ -436,14 +450,22 @@ class Application(Tk):
             self.game.move(Direction.UP)
         elif event.keysym == "Down":
             self.game.move(Direction.DOWN)
-        else: return
+        else:
+            return
         self.refresh()
 
     def refresh(self):
+        movevals = self.vl.get_move_list_2(self.game)
         for i in range(4):
             for j in range(4):
                 self.textv[i][j].set(str(self.game.board[i][j]))
                 self.labels[i][j].config(height=3, width=5)
+            dir = list(Direction)[i]
+            if dir not in movevals.keys():
+                self.infotext[i].set(str(dir.name))
+            else:
+                self.infotext[i].set(str(dir.name)+': '+str("{0:.4g}".format(movevals[dir])))
+        self.title('clicker '+str(self.vl.model.predict(np.vstack([self.game.to_logarray()]))[0][0]))
 
 
 
@@ -494,7 +516,11 @@ class Application2(Tk):
         self.title('clicker-'+str(self.current_num))
 
 if __name__ == '__main__':
-    print random_game_board(200)
+    game = Game()
+    from ql import ValueLearner
+    vl = ValueLearner()
+    vl.load_latest()
+    Application(game, vl).mainloop()
 
 
 

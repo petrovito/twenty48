@@ -1,4 +1,5 @@
 from interface import Game, Application2, Direction, random_game_board, play_random_games
+from direction import Direction
 import copy
 import tensorflow as tf
 import numpy as np
@@ -9,6 +10,7 @@ from keras.models import load_model
 from keras.layers import Dense
 from keras.models import Sequential
 from keras import optimizers
+from qlnode import QLNode, make_eval
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -135,8 +137,56 @@ class ValueLearner:
         sorted_dirs = sorted(values.keys(), key=lambda x: values[x])
         return sorted_dirs
 
+
+    def get_move_list_exhaustive(self, current_game):
+        if self.model is None:
+            return
+        num_each_dir = 3
+        main_node = QLNode(current_game)
+        children = main_node.make_children(num_each_dir)
+        new_children = []
+        for child in children:
+            new_children.extend(child.make_children(num_each_dir))
+        #new_new_children = []
+        #for child in new_children:
+        #    new_new_children.extend(child.make_children(num_each_dir))
+        #for child in new_new_children:
+        #    child.make_children(num_each_dir)
+        make_eval(main_node, self)
+        sorted_dirs = sorted(main_node.legal_dirs, key=lambda x: main_node.dir_values[x])
+        return sorted_dirs
+
+
+
+
+    def get_move_list_2(self, current_game, mode='avg'):
+        if self.model is None:
+            return
+        num_each_dir = 10
+        values = {}
+        if mode == "avg":
+            calcs = []
+            states = current_game.get_states_each_dir(num_each_dir)
+            for dir in Direction:
+                if not current_game.direction_legal[dir]:
+                    continue
+                values[dir] = 0.0
+                calcs.extend(states[dir])
+            poss_arrays = np.vstack(calcs)
+            vals = self.model.predict(poss_arrays)
+            index = 0
+            for dir in list(Direction):
+                if dir not in values.keys():
+                    continue
+                for _ in range(num_each_dir):
+                    values[dir] += vals[index][0]
+                    index += 1
+                values[dir] /= num_each_dir
+        return values
+
+
     def move(self, current_game, mode="avg", eps=None):
-        sorted_dirs = self.get_move_list(current_game)
+        sorted_dirs = self.get_move_list_exhaustive(current_game)
         if eps is None or len(sorted_dirs) == 1:
             return sorted_dirs[-1]
             """
@@ -180,7 +230,40 @@ class ValueLearner:
             avg += len(history)
             histories.append(history)
         self.log(min_game, float(avg)/total_num)
-        return (histories, min_game)
+        return histories, min_game
+
+
+
+    def play_games_2(self, total_num):
+        min_game = 999999999
+        avg = 0
+        histories = []
+        seconds = []
+        thirds = []
+        for i in range(total_num):
+            history = []
+            game = Game()
+            while not game.end:
+                history.append(game.to_logarray())
+                moves = self.get_move_list(game)
+                if len(moves) > 1:
+                    newgame = Game(game)
+                    newgame.move(moves[-2])
+                    if not newgame.end:
+                        seconds.append(newgame)
+                if len(moves) > 2:
+                    newgame = Game(game)
+                    newgame.move(moves[-3])
+                    if not newgame.end:
+                        seconds.append(newgame)
+                game.move(moves[-1])
+            history.append(game.to_logarray())
+            min_game = min(min_game, np.sum(game.board))
+            avg += len(history)
+            histories.append(history)
+        self.log(min_game, float(avg)/total_num)
+        return histories, min_game, seconds, thirds
+
 
 
     def train_on_played_games_lowest(self, histories, min_game, params):
@@ -226,6 +309,44 @@ class ValueLearner:
         self.train_on_data_lowest(params, numrange)
 
 
+    def train_on_played_games_lowest_2(self, histories):
+        histories = sorted(histories, key=lambda x: pow2_sum(x[-1]))
+        num_hist = int(len(histories)*0.5)
+        min_game = pow2_sum(histories[num_hist][-1])
+        act_arrays = {}
+        for i in range(min_game/2):
+            act_arrays[i*2] = []
+        for hist in histories:
+            max_sum = pow2_sum(hist[-1])
+            #print max_sum
+            index = 0
+            while 1:
+                if index >= len(hist):
+                    break
+                vec = hist[index]
+                sum = pow2_sum(vec)
+                index += 1
+                if sum >= min_game:
+                    break
+                act_arrays[sum].append((vec, max_sum-sum))
+        vecs, vals = [], []
+        # normalize vals
+        for sum in act_arrays.keys():
+            if len(act_arrays[sum]) == 0:
+                continue
+            max_val = max(act_arrays[sum], key=lambda x: x[1])[1]
+            if max_val == 0:
+                continue
+            for pair in act_arrays[sum]:
+                game = Game(board=list(pair[0]))
+                game_val = float(pair[1])/max_val
+                for sym in game.symmetries():
+                    vecs.append(sym.to_logarray())
+                    vals.append(game_val)
+                #vecs.append(pair[0])
+                #vals.append(game_val)
+        return vecs, vals
+
     def train_on_data_lowest(self, params, numrange):
         learn_all = params["learn_all"]
 
@@ -242,7 +363,7 @@ class ValueLearner:
         self.model.fit(matrix, labels, epochs=params["num_epochs"], batch_size=params["batch_size"], verbose=0)
 
 
-    def train_random_moves(self, min_length=300, eps=0.03, max_active_games=25):
+    def train_random_moves(self, min_length=300, eps=0.03, max_active_games=30):
         branches = []
         histories = [[]]
         active_games = []
@@ -273,7 +394,8 @@ class ValueLearner:
                     branches.append(np.sum(game.board))
                     game.move(move_list[-1])
                     histories[index].append(game.to_logarray())
-                    new_node.move(move_list[-2])
+                    move = 2#random.randint(2, min(len(move_list), 3))
+                    new_node.move(move_list[-move])
                     histories[num_games].append(new_node.to_logarray())
                 else:
                     game.move(move_list[-1])
@@ -283,6 +405,8 @@ class ValueLearner:
         print len(histories)
         histl = max(histories, key=lambda x: len(x))
         print len(histl), len(histories[0])
+        if len(histl)>1500:
+            Application2(histl).mainloop()
         return histories, branches
 
 
@@ -290,6 +414,7 @@ class ValueLearner:
         for branch in branches:
             i = 0
         #sparse branches, learn stuff
+        #shouldnt work
 
 
     def train(self, exp_name, params, logname):
@@ -301,7 +426,50 @@ class ValueLearner:
                 pair = self.play_games(params["num_batch"])
                 self.train_on_played_games_lowest(pair[0], pair[1], params)
         self.model.save(self.logger.filename+"-model")
-        del self.logger
+
+
+    #sample: games
+    def train_consistency(self, samples):
+        num_each_dir = 20
+        states = []
+        for game in samples:
+            if game.end:
+                print "ERRORRRRRRR"
+            #for sym in game.symmetries():
+            states.append(game.to_logarray())
+            dir_states = game.get_states_each_dir(num_each_dir=num_each_dir)
+            for dir in list(Direction):
+                if not game.direction_legal[dir]:
+                    continue
+                states.extend(dir_states[dir])
+        state_matrix = np.vstack(states)
+        game_logarrays = []
+        vals = self.model.predict(state_matrix)
+        max_values = []
+        index_val, index_sample = 0, 0
+        while index_val < len(vals):
+            act_stat_val = vals[index_val, 0]
+            index_val += 1
+            game = samples[index_sample]
+            index_sample += 1
+            max_val = -1.0
+            for dir in list(Direction):
+                if not game.direction_legal[dir]:
+                    continue
+                avg = 0.0
+                for i in range(num_each_dir):
+                    avg += vals[index_val, 0]
+                    index_val += 1
+                max_val = max(max_val, avg)
+            max_val /= num_each_dir
+            if abs(act_stat_val-max_val) > 0.2:
+                #print act_stat_val, max_val
+                for sym in game.symmetries():
+                    max_values.append(max_val)
+                    game_logarrays.append(sym.to_logarray())
+        return game_logarrays, max_values
+        #return max_values
+
 
 
 class Logger:

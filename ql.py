@@ -1,5 +1,5 @@
-from interface import Game, Application2, Direction, random_game_board, play_random_games
-from direction import Direction
+from interface import Game, Application2, random_game_board, play_random_games
+from tools import Direction, Logger, pow2_sum
 import copy
 import tensorflow as tf
 import numpy as np
@@ -152,7 +152,7 @@ class ValueLearner:
         #    new_new_children.extend(child.make_children(num_each_dir))
         #for child in new_new_children:
         #    child.make_children(num_each_dir)
-        make_eval(main_node, self)
+        make_eval(main_node, self.model)
         sorted_dirs = sorted(main_node.legal_dirs, key=lambda x: main_node.dir_values[x])
         return sorted_dirs
 
@@ -274,24 +274,24 @@ class ValueLearner:
         act_arrays = {}
         if min_game < 2*sums_back:
             sums_back = min_game / 2
-        for i in range(sums_back/2+1):
+        for i in range(sums_back+1):
             act_arrays[min_game-i*2] = []
         for hist in histories:
+            max_sum = pow2_sum(hist[-1])
             index = 0
             while 1:
                 vec = hist[index]
                 sum = pow2_sum(vec)
                 index += 1
-                if sum < min_game-sums_back:
+                if sum < min_game-2*sums_back:
                     continue
-                if sum > min_game:
+                if sum >= min_game:
                     break
-                act_arrays[sum].append((vec, pow2_sum(hist[-1])-sum))
-                if sum == min_game:
-                    break
+                act_arrays[sum].append((vec, max_sum-sum))
         # normalize vals
         numrange = []
-        for sum in act_arrays.keys():
+        vecs, vals = [], []
+        for sum in sorted(act_arrays.keys()):
             if len(act_arrays[sum]) == 0:
                 continue
             numrange.append(sum)
@@ -303,22 +303,25 @@ class ValueLearner:
                 game_val = float(pair[1])/max_val
                 for sym in game.symmetries():
                     self.vecs[sum].append(sym.to_logarray())
+                    vecs.append(sym.to_logarray())
                     self.vals[sum].append(game_val)
+                    vals.append(game_val)
 
         # add symetries???
         self.train_on_data_lowest(params, numrange)
+        return vecs, vals
 
 
-    def train_on_played_games_lowest_2(self, histories):
+    def train_on_played_games_lowest_2(self, histories, sums_back=10):
         histories = sorted(histories, key=lambda x: pow2_sum(x[-1]))
-        num_hist = int(len(histories)*0.5)
-        min_game = pow2_sum(histories[num_hist][-1])
+        num_hist = 10#int(len(histories)*0.5)
+        max_game = pow2_sum(histories[num_hist][-1])
+        min_game = pow2_sum(histories[0][-1])-sums_back
         act_arrays = {}
-        for i in range(min_game/2):
-            act_arrays[i*2] = []
+        for i in range(min_game, max_game, 2):
+            act_arrays[i] = []
         for hist in histories:
             max_sum = pow2_sum(hist[-1])
-            #print max_sum
             index = 0
             while 1:
                 if index >= len(hist):
@@ -326,12 +329,14 @@ class ValueLearner:
                 vec = hist[index]
                 sum = pow2_sum(vec)
                 index += 1
-                if sum >= min_game:
+                if sum < min_game:
+                    continue
+                if sum >= max_game:
                     break
                 act_arrays[sum].append((vec, max_sum-sum))
         vecs, vals = [], []
-        # normalize vals
-        for sum in act_arrays.keys():
+        # normalize val
+        for sum in sorted(act_arrays.keys()):
             if len(act_arrays[sum]) == 0:
                 continue
             max_val = max(act_arrays[sum], key=lambda x: x[1])[1]
@@ -340,11 +345,17 @@ class ValueLearner:
             for pair in act_arrays[sum]:
                 game = Game(board=list(pair[0]))
                 game_val = float(pair[1])/max_val
+                # apply some function:
+                #cut_num = 100
+                #if pair[1] > cut_num:
+                #    game_val = 1.0
+                #else:
+                #    game_val = float(pair[1]) / cut_num
+                #rangel = 0.9
+                #game_val = (1-rangel)/2 + rangel * game_val
                 for sym in game.symmetries():
                     vecs.append(sym.to_logarray())
                     vals.append(game_val)
-                #vecs.append(pair[0])
-                #vals.append(game_val)
         return vecs, vals
 
     def train_on_data_lowest(self, params, numrange):
@@ -469,29 +480,6 @@ class ValueLearner:
                     game_logarrays.append(sym.to_logarray())
         return game_logarrays, max_values
         #return max_values
-
-
-
-class Logger:
-    def __init__(self, params, logname):
-        self.filename = logname
-        self.file = open(self.filename+"-log", "w")
-
-    def __del__(self):
-        self.file.close()
-
-    def log(self, msg):
-        self.file.write(msg+"\n")
-        self.file.flush()
-
-
-def pow2_sum(vec):
-    current_sum = 0
-    for x in vec:
-        if x == 0:
-            continue
-        current_sum += 1 << x
-    return current_sum
 
 
 def game_sort(board):

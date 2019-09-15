@@ -1,4 +1,4 @@
-from direction import Direction
+from tools import Direction
 import random
 from Tkinter import *
 import numpy as np

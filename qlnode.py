@@ -1,5 +1,5 @@
 
-from direction import Direction
+from tools import Direction
 from interface import Game
 import numpy as np
 
@@ -8,7 +8,8 @@ class QLNode:
 
     def __init__(self, game, end_node=True):
         self.game = game
-        self.legal_dirs = [dir for dir in Direction if game.direction_legal[dir]]
+        self.legal_dirs =\
+            [dir for dir in Direction if game.direction_legal[dir]]
         self.children = {dir: [] for dir in self.legal_dirs}
         self.dir_values = {dir: None for dir in self.legal_dirs}
         self.end_node = end_node
@@ -68,11 +69,11 @@ class QLNode:
         return children
 
 
-def make_eval(qlnode, vl):
+def make_eval(qlnode, model):
     vecs, ids = qlnode.get_game_vectors()
     if len(vecs) != 0:
         matrix = np.vstack(vecs)
-        values = vl.model.predict(matrix)
+        values = model.predict(matrix)
         #print len(vecs), time.clock()-tim, (time.clock()-tim)/len(vecs)
         for i in range(len(values)):
             ids[i].value = values[i][0]

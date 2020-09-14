@@ -147,9 +147,9 @@ class ValueLearner:
         new_children = []
         for child in children:
             new_children.extend(child.make_children(num_each_dir))
-        #new_new_children = []
-        #for child in new_children:
-        #    new_new_children.extend(child.make_children(num_each_dir))
+        new_new_children = []
+        for child in new_children:
+            new_new_children.extend(child.make_children(num_each_dir))
         #for child in new_new_children:
         #    child.make_children(num_each_dir)
         make_eval(main_node, self.model)

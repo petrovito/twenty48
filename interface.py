@@ -3,6 +3,7 @@ import random
 from Tkinter import *
 import numpy as np
 import copy
+import threading
 
 import time
 
@@ -17,7 +18,7 @@ def bits(num):
 class Game:
 
 
-    def __init__(self, game=None, two_r=.75, board=None, empty=False):
+    def __init__(self, game=None, two_r=1, board=None, empty=False):
         self.two_rate=two_r
         self.end = False
         self.direction_legal = dict()
@@ -85,8 +86,14 @@ class Game:
 
     def add_random_to_zero(self):
         new_num = 2
-        if random.random() > self.two_rate:
+        #if random.random() > self.two_rate:
+        #    new_num = 4
+        if random.random() > .25:
             new_num = 4
+        if random.random() > .5:
+            new_num = 8
+        if random.random() > .75:
+            new_num = 16
         while 1:
             x = random.randrange(4)
             y = random.randrange(4)
@@ -469,6 +476,60 @@ class Application(Tk):
 
 
 
+class ApplicationAuto(Tk):
+
+
+    def initialize(self):
+        self.labels = []
+        self.textv = []
+        self.infos = []
+        self.infotext = []
+        self.game = None
+        self.grid()
+
+    def __init__(self, game, vl):
+        Tk.__init__(self,None)
+        self.vl = vl
+        self.parent = None
+        self.initialize()
+        self.game=game
+        self.title('auto solve')
+        self.geometry('510x580+300+150')
+
+        for i in range(4):
+            self.labels.append([])
+            self.textv.append([])
+            for j in range(4):
+                self.textv[-1].append(StringVar())
+                lbl = Label(self, textvariable=self.textv[i][j], font=("Arial Bold", 30))
+                lbl.grid(column=j, row=i)
+                self.labels[-1].append(lbl)
+            self.infotext.append(StringVar())
+        self.refresh()
+
+        threading.Timer(1, self.auto_moves).start()
+
+
+    def auto_moves(self):
+        if self.game.end: return
+        self.game.move(self.vl.move(self.game))
+        self.refresh()
+        threading.Timer(.3, self.auto_moves).start()
+
+
+    def refresh(self):
+        movevals = self.vl.get_move_list_2(self.game)
+        for i in range(4):
+            for j in range(4):
+                self.textv[i][j].set(str(self.game.board[i][j]))
+                self.labels[i][j].config(height=3, width=5)
+                color = (np.log2(self.game.board[i][j]+1)+5) / 20 * 256
+                colorhex = '#%02x%02x%02x' % (color.astype(int), color.astype(int), color.astype(int))
+                self.labels[i][j].config(bg=colorhex)
+        self.title('auto solve '+str(self.vl.model.predict(np.vstack([self.game.to_logarray()]))[0][0]))
+
+
+
 
 class Application2(Tk):
 
@@ -520,7 +581,7 @@ if __name__ == '__main__':
     from ql import ValueLearner
     vl = ValueLearner()
     vl.load_latest()
-    Application(game, vl).mainloop()
+    ApplicationAuto(game, vl).mainloop()
 
 
 
